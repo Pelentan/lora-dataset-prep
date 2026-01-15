@@ -1,0 +1,33 @@
+# Binaries
+lora-prep
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go
+*.test
+*.out
+vendor/
+
+# Projects data
+projects/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Web build
+web/dist/
+web/node_modules/
+
+# Logs
+*.log

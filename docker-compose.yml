@@ -1,0 +1,11 @@
+services:
+  lora-prep:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./projects:/app/projects
+    environment:
+      - PROJECTS_PATH=/app/projects
+      - PORT=8080
+    restart: unless-stopped
