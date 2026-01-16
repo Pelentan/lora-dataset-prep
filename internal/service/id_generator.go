@@ -4,13 +4,28 @@ import (
 	"crypto/rand"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 )
 
-func GenerateArtifactID(artifactType, manufacturer string) string {
+func GenerateArtifactID(artifactType string, components ...string) string {
 	timestamp := time.Now().Unix()
 	randomSuffix := generateRandomHex(4)
-	return fmt.Sprintf("%s-%s-%d-%s", artifactType, manufacturer, timestamp, randomSuffix)
+
+	// Start with artifact type
+	parts := []string{artifactType}
+
+	// Add any provided components
+	for _, comp := range components {
+		if comp != "" {
+			parts = append(parts, comp)
+		}
+	}
+
+	// Add timestamp and random suffix
+	parts = append(parts, fmt.Sprintf("%d", timestamp), randomSuffix)
+
+	return strings.Join(parts, "-")
 }
 
 func GenerateTrainingImageID(artifactID, angleCode string, sequence int) string {
@@ -32,11 +47,11 @@ func GenerateQueueItemID() string {
 func generateRandomHex(length int) string {
 	const hexChars = "0123456789ABCDEF"
 	result := make([]byte, length)
-	
+
 	for i := 0; i < length; i++ {
 		n, _ := rand.Int(rand.Reader, big.NewInt(16))
 		result[i] = hexChars[n.Int64()]
 	}
-	
+
 	return string(result)
 }

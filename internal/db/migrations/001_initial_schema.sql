@@ -10,7 +10,6 @@ CREATE TABLE artifact_type_codes (
 CREATE TABLE manufacturer_codes (
     code VARCHAR(3) PRIMARY KEY,
     full_name VARCHAR(100) NOT NULL,
-    universe VARCHAR(100) NOT NULL,
     description TEXT,
     founded_year INTEGER,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -73,29 +72,11 @@ CREATE TABLE distance_types (
 CREATE TABLE artifacts (
     id VARCHAR(50) PRIMARY KEY,
     artifact_type_code VARCHAR(3) NOT NULL,
-    manufacturer_code VARCHAR(3),
-    universe VARCHAR(100) NOT NULL,
     name VARCHAR(200) NOT NULL,
     description TEXT,
     
-    -- Physical properties
-    length_m REAL,
-    width_m REAL,
-    height_m REAL,
-    mass_kg REAL,
-    scale_category VARCHAR(50),
-    
-    -- Visual properties (JSON)
-    primary_colors TEXT,
-    materials TEXT,
-    
-    -- Type-specific
-    vehicle_type VARCHAR(100),
-    vehicle_role VARCHAR(100),
-    
-    -- Context
-    typical_environment VARCHAR(100),
-    era VARCHAR(100),
+    -- Physical properties (JSON)
+    physical_properties TEXT,
     
     -- Flexible expansion (JSON)
     additional_properties TEXT,
@@ -104,8 +85,7 @@ CREATE TABLE artifacts (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     
-    FOREIGN KEY (artifact_type_code) REFERENCES artifact_type_codes(code),
-    FOREIGN KEY (manufacturer_code) REFERENCES manufacturer_codes(code)
+    FOREIGN KEY (artifact_type_code) REFERENCES artifact_type_codes(code)
 );
 
 CREATE TABLE training_images (
@@ -205,11 +185,18 @@ CREATE TABLE lookup_table_artifact_types (
     PRIMARY KEY (table_name, artifact_type_code)
 );
 
+-- Lookup table configuration
+CREATE TABLE lookup_table_config (
+    table_name VARCHAR(100) PRIMARY KEY,
+    is_multi_select BOOLEAN DEFAULT FALSE,
+    use_for_image_processing BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Indexes
 
 CREATE INDEX idx_artifacts_type ON artifacts(artifact_type_code);
-CREATE INDEX idx_artifacts_manufacturer ON artifacts(manufacturer_code);
-CREATE INDEX idx_artifacts_universe ON artifacts(universe);
 CREATE INDEX idx_artifacts_name ON artifacts(name);
 
 CREATE INDEX idx_training_images_artifact ON training_images(artifact_id);

@@ -70,6 +70,7 @@ func main() {
 			r.Get("/lookups/{tableName}", handlers.ListLookup)
 			r.Get("/lookups/{tableName}/schema", handlers.GetLookupTableSchema)
 			r.Put("/lookups/{tableName}/artifact-types", handlers.UpdateLookupTableArtifactTypes)
+			r.Put("/lookups/{tableName}/config", handlers.UpdateLookupTableConfig)
 			r.Post("/lookups/{tableName}/columns", handlers.AddLookupTableColumn)
 			r.Delete("/lookups/{tableName}/columns/{columnName}", handlers.DeleteLookupTableColumn)
 			r.Put("/lookups/{tableName}/columns/{columnName}/display-name", handlers.UpdateColumnDisplayName)

@@ -58,7 +58,7 @@ function LookupManager() {
   const [showCreateTableDialog, setShowCreateTableDialog] = useState(false)
   const [showDeleteTableDialog, setShowDeleteTableDialog] = useState(false)
   const [deleteTableConfirmation, setDeleteTableConfirmation] = useState('')
-  const [newTableData, setNewTableData] = useState({ name: '', template: 'basic' })
+  const [newTableData, setNewTableData] = useState({ name: '', template: 'basic', isMultiSelect: false })
   const [newColumnData, setNewColumnData] = useState({ name: '', type: 'text_100' })
   const [sortColumn, setSortColumn] = useState(null)
   const [sortDirection, setSortDirection] = useState('asc')
@@ -69,6 +69,8 @@ function LookupManager() {
   const [csvRowCount, setCsvRowCount] = useState(0)
   const [columnMapping, setColumnMapping] = useState({})
   const [editingDisplayName, setEditingDisplayName] = useState(null)
+  const [isMultiSelect, setIsMultiSelect] = useState(false)
+  const [useForImageProcessing, setUseForImageProcessing] = useState(false)
 
   useEffect(() => {
     loadTables()
@@ -133,6 +135,8 @@ function LookupManager() {
       const data = await api.lookups.getSchema(projectName, activeTable)
       setSchema(data.columns || [])
       setSelectedArtifactTypes(data.artifact_types || [])
+      setIsMultiSelect(data.is_multi_select || false)
+      setUseForImageProcessing(data.use_for_image_processing || false)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -143,9 +147,9 @@ function LookupManager() {
   async function handleCreateTable(e) {
     e.preventDefault()
     try {
-      await api.lookups.createTable(projectName, newTableData.name, newTableData.template)
+      await api.lookups.createTable(projectName, newTableData.name, newTableData.template, newTableData.isMultiSelect)
       setShowCreateTableDialog(false)
-      setNewTableData({ name: '', template: 'basic' })
+      setNewTableData({ name: '', template: 'basic', isMultiSelect: false })
       await loadTables()
       setActiveTable(newTableData.name)
     } catch (err) {
@@ -181,6 +185,24 @@ function LookupManager() {
       if (activeTab === 'data') {
         loadEntries()
       }
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleUpdateMultiSelect(newValue) {
+    try {
+      await api.lookups.updateConfig(projectName, activeTable, { is_multi_select: newValue })
+      setIsMultiSelect(newValue)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleUpdateUseForImageProcessing(newValue) {
+    try {
+      await api.lookups.updateConfig(projectName, activeTable, { use_for_image_processing: newValue })
+      setUseForImageProcessing(newValue)
     } catch (err) {
       setError(err.message)
     }
@@ -234,6 +256,14 @@ function LookupManager() {
 
   async function handleExport() {
     window.location.href = `/api/projects/${projectName}/lookups/${activeTable}/export`
+  }
+
+  async function openImportDialog() {
+    // Ensure schema is loaded before opening import dialog
+    if (schema.length === 0) {
+      await loadSchema()
+    }
+    setShowImportDialog(true)
   }
 
   async function handleParseCSV(e) {
@@ -476,7 +506,7 @@ function LookupManager() {
             {activeTab === 'data' && (
               <>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '20px' }}>
-                  <button onClick={() => setShowImportDialog(true)}>Import CSV</button>
+                  <button onClick={openImportDialog}>Import CSV</button>
                   <button onClick={handleExport}>Export CSV</button>
                   <button className="primary" onClick={openAddDialog}>Add New</button>
                 </div>
@@ -633,6 +663,71 @@ function LookupManager() {
                       </tbody>
                     </table>
 
+                    <div style={{ padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '4px', marginBottom: '30px' }}>
+                      <h4>Add Column</h4>
+                      <form onSubmit={handleAddColumn} style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                        <input
+                          type="text"
+                          placeholder="Column name (e.g., weight_kg)"
+                          value={newColumnData.name}
+                          onChange={(e) => setNewColumnData({ ...newColumnData, name: e.target.value })}
+                          pattern="[a-zA-Z0-9_]+"
+                          title="Only letters, numbers, and underscores"
+                          required
+                          style={{ flex: '1' }}
+                        />
+                        <select
+                          value={newColumnData.type}
+                          onChange={(e) => setNewColumnData({ ...newColumnData, type: e.target.value })}
+                        >
+                          <option value="text_20">Text (20)</option>
+                          <option value="text_50">Text (50)</option>
+                          <option value="text_100">Text (100)</option>
+                          <option value="text_1000">Text (1000)</option>
+                          <option value="number">Number</option>
+                        </select>
+                        <button type="submit" className="primary">Add Column</button>
+                      </form>
+                    </div>
+
+                    <div style={{ padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '4px', marginBottom: '20px' }}>
+                      <h4>Display Mode</h4>
+                      <p style={{ color: '#666', fontSize: '14px', marginBottom: '12px' }}>
+                        Choose how this lookup table appears in artifact forms
+                      </p>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={isMultiSelect}
+                          onChange={(e) => handleUpdateMultiSelect(e.target.checked)}
+                        />
+                        <span style={{ fontWeight: 500 }}>Multi-Select Mode (checkboxes)</span>
+                      </label>
+                      <small style={{ color: '#666', display: 'block', marginTop: '8px', marginLeft: '28px' }}>
+                        When enabled, users can select multiple values from this table. 
+                        When disabled, only one value can be selected (dropdown).
+                      </small>
+                    </div>
+
+                    <div style={{ padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '4px', marginBottom: '20px' }}>
+                      <h4>Image Processing</h4>
+                      <p style={{ color: '#666', fontSize: '14px', marginBottom: '12px' }}>
+                        Configure whether this lookup table is used for image metadata
+                      </p>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={useForImageProcessing}
+                          onChange={(e) => handleUpdateUseForImageProcessing(e.target.checked)}
+                        />
+                        <span style={{ fontWeight: 500 }}>Use for Image Processing</span>
+                      </label>
+                      <small style={{ color: '#666', display: 'block', marginTop: '8px', marginLeft: '28px' }}>
+                        When enabled, this lookup table will be available when adding metadata to training images.
+                        Examples: angle_types, distance_types, lighting_types, condition_states.
+                      </small>
+                    </div>
+
                     {allArtifactTypes.length > 0 && activeTable !== 'artifact_type_codes' && (
                       <div style={{ padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '4px', marginBottom: '30px' }}>
                         <h4>Used By Artifact Types</h4>
@@ -660,33 +755,6 @@ function LookupManager() {
                         </button>
                       </div>
                     )}
-
-                    <div style={{ padding: '20px', backgroundColor: '#f9f9f9', borderRadius: '4px', marginBottom: '30px' }}>
-                      <h4>Add Column</h4>
-                      <form onSubmit={handleAddColumn} style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-                        <input
-                          type="text"
-                          placeholder="Column name (e.g., weight_kg)"
-                          value={newColumnData.name}
-                          onChange={(e) => setNewColumnData({ ...newColumnData, name: e.target.value })}
-                          pattern="[a-zA-Z0-9_]+"
-                          title="Only letters, numbers, and underscores"
-                          required
-                          style={{ flex: '1' }}
-                        />
-                        <select
-                          value={newColumnData.type}
-                          onChange={(e) => setNewColumnData({ ...newColumnData, type: e.target.value })}
-                        >
-                          <option value="text_20">Text (20)</option>
-                          <option value="text_50">Text (50)</option>
-                          <option value="text_100">Text (100)</option>
-                          <option value="text_1000">Text (1000)</option>
-                          <option value="number">Number</option>
-                        </select>
-                        <button type="submit" className="primary">Add Column</button>
-                      </form>
-                    </div>
 
                     <div style={{ padding: '20px', backgroundColor: '#fff0f0', border: '1px solid #ffcccc', borderRadius: '4px' }}>
                       <h4 style={{ color: '#dc3545' }}>Danger Zone</h4>
@@ -753,6 +821,20 @@ function LookupManager() {
                   <option value="with_sort_order">With Sort Order (adds sort_order field)</option>
                   <option value="with_universe">With Universe (adds universe, founded_year)</option>
                 </select>
+              </div>
+
+              <div className="form-group">
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={newTableData.isMultiSelect}
+                    onChange={(e) => setNewTableData({ ...newTableData, isMultiSelect: e.target.checked })}
+                  />
+                  <span>Multi-Select (checkboxes instead of dropdown)</span>
+                </label>
+                <small style={{ color: '#666', display: 'block', marginTop: '4px' }}>
+                  Enable this for fields that can have multiple values (e.g., weapon types, propulsion systems)
+                </small>
               </div>
 
               <div style={{ display: 'flex', gap: '8px', marginTop: '20px', justifyContent: 'flex-end' }}>

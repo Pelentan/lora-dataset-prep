@@ -54,27 +54,15 @@ type CropParams struct {
 }
 
 type Artifact struct {
-	ID                   string     `db:"id" json:"id"`
-	ArtifactTypeCode     string     `db:"artifact_type_code" json:"artifact_type_code"`
-	ManufacturerCode     *string    `db:"manufacturer_code" json:"manufacturer_code"`
-	Universe             string     `db:"universe" json:"universe"`
-	Name                 string     `db:"name" json:"name"`
-	Description          *string    `db:"description" json:"description"`
-	LengthM              *float64   `db:"length_m" json:"length_m"`
-	WidthM               *float64   `db:"width_m" json:"width_m"`
-	HeightM              *float64   `db:"height_m" json:"height_m"`
-	MassKg               *float64   `db:"mass_kg" json:"mass_kg"`
-	ScaleCategory        *string    `db:"scale_category" json:"scale_category"`
-	PrimaryColors        JSONSlice  `db:"primary_colors" json:"primary_colors"`
-	Materials            JSONSlice  `db:"materials" json:"materials"`
-	VehicleType          *string    `db:"vehicle_type" json:"vehicle_type"`
-	VehicleRole          *string    `db:"vehicle_role" json:"vehicle_role"`
-	TypicalEnvironment   *string    `db:"typical_environment" json:"typical_environment"`
-	Era                  *string    `db:"era" json:"era"`
-	AdditionalProperties JSONMap    `db:"additional_properties" json:"additional_properties"`
-	Tags                 JSONSlice  `db:"tags" json:"tags"`
-	CreatedAt            time.Time  `db:"created_at" json:"created_at"`
-	UpdatedAt            time.Time  `db:"updated_at" json:"updated_at"`
+	ID                   string    `db:"id" json:"id"`
+	ArtifactTypeCode     string    `db:"artifact_type_code" json:"artifact_type_code"`
+	Name                 string    `db:"name" json:"name"`
+	Description          *string   `db:"description" json:"description"`
+	PhysicalProperties   JSONMap   `db:"physical_properties" json:"physical_properties"`
+	AdditionalProperties JSONMap   `db:"additional_properties" json:"additional_properties"`
+	Tags                 JSONSlice `db:"tags" json:"tags"`
+	CreatedAt            time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt            time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type TrainingImage struct {
@@ -99,26 +87,26 @@ type TrainingImage struct {
 }
 
 type LookupTable struct {
-	Code        string     `db:"code" json:"code"`
-	FullName    string     `db:"full_name" json:"full_name"`
-	Description *string    `db:"description" json:"description,omitempty"`
-	Universe    *string    `db:"universe" json:"universe,omitempty"`
-	Category    *string    `db:"category" json:"category,omitempty"`
-	SortOrder   *int       `db:"sort_order" json:"sort_order,omitempty"`
-	FoundedYear *int       `db:"founded_year" json:"founded_year,omitempty"`
-	CreatedAt   time.Time  `db:"created_at" json:"created_at"`
+	Code        string    `db:"code" json:"code"`
+	FullName    string    `db:"full_name" json:"full_name"`
+	Description *string   `db:"description" json:"description,omitempty"`
+	Universe    *string   `db:"universe" json:"universe,omitempty"`
+	Category    *string   `db:"category" json:"category,omitempty"`
+	SortOrder   *int      `db:"sort_order" json:"sort_order,omitempty"`
+	FoundedYear *int      `db:"founded_year" json:"founded_year,omitempty"`
+	CreatedAt   time.Time `db:"created_at" json:"created_at"`
 }
 
 type ImportQueue struct {
-	ID                 string    `db:"id" json:"id"`
-	ArtifactID         string    `db:"artifact_id" json:"artifact_id"`
-	SourceFolder       string    `db:"source_folder" json:"source_folder"`
-	DestinationFolder  string    `db:"destination_folder" json:"destination_folder"`
-	TotalImages        int       `db:"total_images" json:"total_images"`
-	ProcessedImages    int       `db:"processed_images" json:"processed_images"`
-	Status             string    `db:"status" json:"status"`
-	CreatedAt          time.Time `db:"created_at" json:"created_at"`
-	UpdatedAt          time.Time `db:"updated_at" json:"updated_at"`
+	ID                string    `db:"id" json:"id"`
+	ArtifactID        string    `db:"artifact_id" json:"artifact_id"`
+	SourceFolder      string    `db:"source_folder" json:"source_folder"`
+	DestinationFolder string    `db:"destination_folder" json:"destination_folder"`
+	TotalImages       int       `db:"total_images" json:"total_images"`
+	ProcessedImages   int       `db:"processed_images" json:"processed_images"`
+	Status            string    `db:"status" json:"status"`
+	CreatedAt         time.Time `db:"created_at" json:"created_at"`
+	UpdatedAt         time.Time `db:"updated_at" json:"updated_at"`
 }
 
 type ImportQueueItem struct {

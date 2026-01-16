@@ -80,10 +80,10 @@ export const api = {
   lookups: {
     listTables: (projectName, artifactType) =>
       fetchJSON(`${API_BASE}/projects/${projectName}/lookup-tables${artifactType ? '?artifact_type=' + artifactType : ''}`),
-    createTable: (projectName, tableName, template) =>
+    createTable: (projectName, tableName, template, isMultiSelect = false) =>
       fetchJSON(`${API_BASE}/projects/${projectName}/lookup-tables`, {
         method: 'POST',
-        body: JSON.stringify({ table_name: tableName, template }),
+        body: JSON.stringify({ table_name: tableName, template, is_multi_select: isMultiSelect }),
       }),
     deleteTable: (projectName, tableName) =>
       fetchJSON(`${API_BASE}/projects/${projectName}/lookup-tables`, {
@@ -96,6 +96,11 @@ export const api = {
       fetchJSON(`${API_BASE}/projects/${projectName}/lookups/${tableName}/artifact-types`, {
         method: 'PUT',
         body: JSON.stringify({ artifact_types: artifactTypes }),
+      }),
+    updateConfig: (projectName, tableName, config) =>
+      fetchJSON(`${API_BASE}/projects/${projectName}/lookups/${tableName}/config`, {
+        method: 'PUT',
+        body: JSON.stringify(config),
       }),
     addColumn: (projectName, tableName, columnName, columnType) =>
       fetchJSON(`${API_BASE}/projects/${projectName}/lookups/${tableName}/columns`, {

@@ -157,12 +157,15 @@ func (h *Handlers) ListLookupTables(w http.ResponseWriter, r *http.Request) {
 			PRIMARY KEY (table_name, artifact_type_code)
 		)`)
 
+		// Only show tables that are explicitly associated with this artifact type
 		query := `SELECT DISTINCT t.name 
 		          FROM sqlite_master t
-		          LEFT JOIN lookup_table_artifact_types lat ON t.name = lat.table_name
 		          WHERE t.type='table' 
 		          AND (t.name LIKE '%_types' OR t.name LIKE '%_codes' OR t.name LIKE '%_states' OR t.name LIKE '%_roles')
-		          AND (lat.artifact_type_code = ? OR lat.artifact_type_code IS NULL)
+		          AND EXISTS (
+		            SELECT 1 FROM lookup_table_artifact_types 
+		            WHERE table_name = t.name AND artifact_type_code = ?
+		          )
 		          ORDER BY t.name COLLATE NOCASE`
 		err = db.Select(&tables, query, artifactType)
 	} else {
@@ -187,8 +190,9 @@ func (h *Handlers) CreateLookupTable(w http.ResponseWriter, r *http.Request) {
 	db := getProjectDB(r)
 
 	var req struct {
-		TableName string `json:"table_name"`
-		Template  string `json:"template"` // basic, with_category, with_sort_order, with_universe
+		TableName     string `json:"table_name"`
+		Template      string `json:"template"` // basic, with_category, with_sort_order, with_universe
+		IsMultiSelect bool   `json:"is_multi_select"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -287,10 +291,27 @@ func (h *Handlers) CreateLookupTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Create lookup_table_config table if it doesn't exist
+	db.Exec(`CREATE TABLE IF NOT EXISTS lookup_table_config (
+		table_name VARCHAR(100) PRIMARY KEY,
+		is_multi_select BOOLEAN DEFAULT FALSE,
+		use_for_image_processing BOOLEAN DEFAULT FALSE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`)
+
+	// Insert config for this table
+	configQuery := `INSERT INTO lookup_table_config (table_name, is_multi_select) VALUES (?, ?)`
+	if _, err := db.Exec(configQuery, req.TableName, req.IsMultiSelect); err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create table config: %v", err))
+		return
+	}
+
 	respondJSON(w, http.StatusCreated, map[string]interface{}{
-		"table_name": req.TableName,
-		"template":   req.Template,
-		"created":    true,
+		"table_name":      req.TableName,
+		"template":        req.Template,
+		"is_multi_select": req.IsMultiSelect,
+		"created":         true,
 	})
 }
 
@@ -411,10 +432,36 @@ func (h *Handlers) GetLookupTableSchema(w http.ResponseWriter, r *http.Request) 
 		artifactTypeCodes = append(artifactTypeCodes, at.ArtifactTypeCode)
 	}
 
+	// Get is_multi_select config
+	// Ensure config table exists
+	db.Exec(`CREATE TABLE IF NOT EXISTS lookup_table_config (
+		table_name VARCHAR(100) PRIMARY KEY,
+		is_multi_select BOOLEAN DEFAULT FALSE,
+		use_for_image_processing BOOLEAN DEFAULT FALSE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`)
+
+	var isMultiSelect bool
+	var useForImageProcessing bool
+	err := db.Get(&isMultiSelect, "SELECT COALESCE(is_multi_select, FALSE) FROM lookup_table_config WHERE table_name = ?", tableName)
+	if err != nil {
+		// Default to false if not found
+		isMultiSelect = false
+	}
+
+	err = db.Get(&useForImageProcessing, "SELECT COALESCE(use_for_image_processing, FALSE) FROM lookup_table_config WHERE table_name = ?", tableName)
+	if err != nil {
+		// Default to false if not found
+		useForImageProcessing = false
+	}
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"table_name":     tableName,
-		"columns":        columns,
-		"artifact_types": artifactTypeCodes,
+		"table_name":               tableName,
+		"columns":                  columns,
+		"artifact_types":           artifactTypeCodes,
+		"is_multi_select":          isMultiSelect,
+		"use_for_image_processing": useForImageProcessing,
 	})
 }
 
@@ -469,6 +516,93 @@ func (h *Handlers) UpdateLookupTableArtifactTypes(w http.ResponseWriter, r *http
 		"table_name":     tableName,
 		"artifact_types": req.ArtifactTypes,
 		"updated":        true,
+	})
+}
+
+func (h *Handlers) UpdateLookupTableConfig(w http.ResponseWriter, r *http.Request) {
+	db := getProjectDB(r)
+	tableName := chi.URLParam(r, "tableName")
+
+	var req struct {
+		IsMultiSelect         *bool `json:"is_multi_select"`
+		UseForImageProcessing *bool `json:"use_for_image_processing"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	// Validate it's a lookup table
+	var exists int
+	checkQuery := `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=? AND 
+	               (name LIKE '%_types' OR name LIKE '%_codes' OR name LIKE '%_states' OR name LIKE '%_roles')`
+	if err := db.Get(&exists, checkQuery, tableName); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if exists == 0 {
+		respondError(w, http.StatusBadRequest, "invalid or non-existent lookup table")
+		return
+	}
+
+	// Ensure the config table exists
+	db.Exec(`CREATE TABLE IF NOT EXISTS lookup_table_config (
+		table_name VARCHAR(100) PRIMARY KEY,
+		is_multi_select BOOLEAN DEFAULT FALSE,
+		use_for_image_processing BOOLEAN DEFAULT FALSE,
+		created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+	)`)
+
+	// Build dynamic update query based on what's provided
+	// Determine values for INSERT (use provided value or FALSE as default)
+	isMultiSelectValue := false
+	useForImageProcessingValue := false
+
+	updates := []string{}
+
+	if req.IsMultiSelect != nil {
+		isMultiSelectValue = *req.IsMultiSelect
+		updates = append(updates, "is_multi_select = excluded.is_multi_select")
+	}
+
+	if req.UseForImageProcessing != nil {
+		useForImageProcessingValue = *req.UseForImageProcessing
+		updates = append(updates, "use_for_image_processing = excluded.use_for_image_processing")
+	}
+
+	if len(updates) == 0 {
+		respondError(w, http.StatusBadRequest, "no fields to update")
+		return
+	}
+
+	updates = append(updates, "updated_at = CURRENT_TIMESTAMP")
+
+	// Build args: tableName, is_multi_select, use_for_image_processing for INSERT
+	args := []interface{}{tableName, isMultiSelectValue, useForImageProcessingValue}
+
+	// Insert or update config - INSERT uses actual values, UPDATE uses excluded.* to reference them
+	query := fmt.Sprintf(`INSERT INTO lookup_table_config (table_name, is_multi_select, use_for_image_processing, updated_at) 
+	          VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+	          ON CONFLICT(table_name) DO UPDATE SET %s`, strings.Join(updates, ", "))
+
+	if _, err := db.Exec(query, args...); err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update config: %v", err))
+		return
+	}
+
+	// Get updated values to return
+	var isMultiSelect bool
+	var useForImageProcessing bool
+	db.Get(&isMultiSelect, "SELECT COALESCE(is_multi_select, FALSE) FROM lookup_table_config WHERE table_name = ?", tableName)
+	db.Get(&useForImageProcessing, "SELECT COALESCE(use_for_image_processing, FALSE) FROM lookup_table_config WHERE table_name = ?", tableName)
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"table_name":               tableName,
+		"is_multi_select":          isMultiSelect,
+		"use_for_image_processing": useForImageProcessing,
+		"updated":                  true,
 	})
 }
 
@@ -655,37 +789,33 @@ func (h *Handlers) ListArtifacts(w http.ResponseWriter, r *http.Request) {
 func (h *Handlers) CreateArtifact(w http.ResponseWriter, r *http.Request) {
 	db := getProjectDB(r)
 
-	var artifact models.Artifact
-	if err := json.NewDecoder(r.Body).Decode(&artifact); err != nil {
+	var req struct {
+		models.Artifact
+		IdComponents []string `json:"id_components"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if artifact.ArtifactTypeCode == "" || artifact.Name == "" || artifact.Universe == "" {
-		respondError(w, http.StatusBadRequest, "artifact_type_code, name, and universe are required")
+	artifact := req.Artifact
+	if artifact.ArtifactTypeCode == "" || artifact.Name == "" {
+		respondError(w, http.StatusBadRequest, "artifact_type_code and name are required")
 		return
 	}
 
-	mfrCode := ""
-	if artifact.ManufacturerCode != nil {
-		mfrCode = *artifact.ManufacturerCode
-	}
-
-	artifact.ID = service.GenerateArtifactID(artifact.ArtifactTypeCode, mfrCode)
+	// Generate ID using type code and optional ID components
+	artifact.ID = service.GenerateArtifactID(artifact.ArtifactTypeCode, req.IdComponents...)
 	artifact.CreatedAt = time.Now()
 	artifact.UpdatedAt = time.Now()
 
 	query := `INSERT INTO artifacts (
-		id, artifact_type_code, manufacturer_code, universe, name, description,
-		length_m, width_m, height_m, mass_kg, scale_category,
-		primary_colors, materials, vehicle_type, vehicle_role,
-		typical_environment, era, additional_properties, tags,
+		id, artifact_type_code, name, description,
+		physical_properties, additional_properties, tags,
 		created_at, updated_at
 	) VALUES (
-		:id, :artifact_type_code, :manufacturer_code, :universe, :name, :description,
-		:length_m, :width_m, :height_m, :mass_kg, :scale_category,
-		:primary_colors, :materials, :vehicle_type, :vehicle_role,
-		:typical_environment, :era, :additional_properties, :tags,
+		:id, :artifact_type_code, :name, :description,
+		:physical_properties, :additional_properties, :tags,
 		:created_at, :updated_at
 	)`
 
@@ -727,21 +857,9 @@ func (h *Handlers) UpdateArtifact(w http.ResponseWriter, r *http.Request) {
 
 	query := `UPDATE artifacts SET
 		artifact_type_code = :artifact_type_code,
-		manufacturer_code = :manufacturer_code,
-		universe = :universe,
 		name = :name,
 		description = :description,
-		length_m = :length_m,
-		width_m = :width_m,
-		height_m = :height_m,
-		mass_kg = :mass_kg,
-		scale_category = :scale_category,
-		primary_colors = :primary_colors,
-		materials = :materials,
-		vehicle_type = :vehicle_type,
-		vehicle_role = :vehicle_role,
-		typical_environment = :typical_environment,
-		era = :era,
+		physical_properties = :physical_properties,
 		additional_properties = :additional_properties,
 		tags = :tags,
 		updated_at = :updated_at
@@ -915,7 +1033,7 @@ func (h *Handlers) ListLookup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := fmt.Sprintf("SELECT * FROM %s ORDER BY created_at DESC", tableName)
+	query := fmt.Sprintf("SELECT * FROM %s ORDER BY code", tableName)
 
 	// Use MapSlice to support dynamic columns
 	rows, err := db.Queryx(query)
