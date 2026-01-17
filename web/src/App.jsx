@@ -4,6 +4,7 @@ import ProjectDashboard from './pages/ProjectDashboard'
 import ArtifactList from './pages/ArtifactList'
 import ArtifactForm from './pages/ArtifactForm'
 import ImageProcessing from './pages/ImageProcessing'
+import TrainingImages from './pages/TrainingImages'
 import LookupManager from './pages/LookupManager'
 
 function App() {
@@ -16,6 +17,7 @@ function App() {
         <Route path="/projects/:projectName/artifacts/new" element={<ArtifactForm />} />
         <Route path="/projects/:projectName/artifacts/:artifactId/edit" element={<ArtifactForm />} />
         <Route path="/projects/:projectName/import" element={<ImageProcessing />} />
+        <Route path="/projects/:projectName/training-images" element={<TrainingImages />} />
         <Route path="/projects/:projectName/lookups" element={<LookupManager />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

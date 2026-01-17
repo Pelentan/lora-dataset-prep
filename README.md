@@ -1,123 +1,113 @@
-# LoRA Prep - Model Training Dataset Manager
+# LoRA Dataset Preparation Tool
 
-A tool for managing training datasets for AI model fine-tuning. Designed for single-developer + AI collaboration.
+[![CodeQL](https://github.com/yourusername/lora-prep/workflows/CodeQL%20Security%20Analysis/badge.svg)](https://github.com/yourusername/lora-prep/actions/workflows/codeql.yml)
 
-## Features
+A comprehensive web application for managing and preparing training datasets for LoRA (Low-Rank Adaptation) model fine-tuning. Built for AI artists and developers working with thousands of images across multiple creative universes.
 
-- Project-based organization (separate databases per universe/project)
-- Artifact management (vehicles, weapons, characters, etc.)
-- Image import with preprocessing (letterbox or manual crop to 1024x1024)
-- Automated caption generation with human review
-- Lookup table management (manufacturers, angles, lighting, etc.)
-- CSV import/export for lookup tables
-- Training dataset export
+## What It Does
+
+This tool streamlines the entire process of creating high-quality training datasets:
+
+- **Organize Artifacts**: Manage your creative assets (vehicles, characters, weapons, cities) with rich metadata and flexible categorization
+- **Process Images**: Import, crop, and preprocess images to the perfect 1024x1024 format required for training
+- **Generate Captions**: Create consistent, natural-language descriptions for each training image
+- **Manage Datasets**: Review, edit, and organize your complete training dataset with full visibility
+- **Export for Training**: One-click export of processed images and captions ready for LoRA training software
+
+## Key Features
+
+✨ **Multi-Project Support** - Separate databases for different story universes or creative projects  
+🎨 **Interactive Image Processing** - Manual crop tool with real-time preview  
+📝 **Smart Caption Generation** - Structured prose captions based on artifact properties  
+🗂️ **Flexible Metadata** - Configurable lookup tables for angles, lighting, materials, and more  
+📊 **Dataset Statistics** - Track your progress and dataset composition  
+🔒 **Automated Security Scanning** - CodeQL analysis blocks PRs with critical vulnerabilities  
+🚀 **One-Click Deployment** - Docker-based setup with single command startup  
+
+## Documentation
+
+- **[Installation Guide](documents/INSTALLATION.md)** - Get up and running in minutes
+- **[User Guide](documents/USER_GUIDE.md)** - Complete walkthrough from start to finish
+- **[Security Scanning](documents/SECURITY.md)** - Automated vulnerability detection and PR blocking
+- **[AI Development Story](documents/AI_DEVELOPMENT.md)** - How this application was built with AI assistance
 
 ## Quick Start
 
-### With Docker (Recommended)
-
 ```bash
+# Clone the repository
 git clone <repository-url>
 cd lora-prep
-docker-compose up -d
+
+# Start the application
+docker compose up --build
+
+# Open in browser
+http://localhost:8080
 ```
 
-Open browser to http://localhost:8080
+That's it! The application is now running with a complete web interface.
 
-### Manual Setup
+## Technology Stack
 
 **Backend:**
-```bash
-cd lora-prep
-go mod download
-go run cmd/server/main.go
-```
+- Go 1.23 with Chi router
+- SQLite database (per-project isolation)
+- Image processing with github.com/disintegration/imaging
 
-**Frontend (in separate terminal):**
-```bash
-cd web
-npm install
-npm run dev
-```
+**Frontend:**
+- React 18 with Vite
+- React Router for navigation
+- Native fetch API for backend communication
 
-Backend: http://localhost:8080
-Frontend dev server: http://localhost:3000
+**Deployment:**
+- Docker with multi-stage builds
+- All-in-one container (frontend + backend)
+- Volume-mounted project storage
 
 ## Project Structure
 
 ```
 lora-prep/
 ├── cmd/server/           # Go backend entry point
-├── internal/
-│   ├── api/              # HTTP handlers
-│   ├── db/               # Database manager
-│   │   └── migrations/   # SQL schema
-│   ├── models/           # Data structures
-│   └── service/          # Business logic
-├── web/                  # React frontend
+├── internal/             # Backend packages
+│   ├── api/             # HTTP handlers
+│   ├── db/              # Database management
+│   ├── models/          # Data structures
+│   └── service/         # Business logic
+├── web/                 # React frontend
 │   └── src/
-│       ├── pages/        # Page components
-│       ├── components/   # Reusable components
-│       └── services/     # API client
-└── projects/             # User data (gitignored)
+│       ├── components/  # Reusable UI components
+│       ├── pages/       # Page components
+│       └── services/    # API client
+├── documents/           # Documentation
+└── projects/            # Project data (created at runtime)
     └── {project-name}/
-        ├── data/         # SQLite database
-        ├── images/       # Training images
-        │   ├── raw/
-        │   └── training/
-        └── exports/      # Exported datasets
+        ├── project.db          # SQLite database
+        ├── images/             # Image storage
+        │   ├── raw/           # Original images
+        │   └── training/      # Processed images
+        └── exports/           # Dataset exports
 ```
 
-## Development Status
+## Use Cases
 
-### Implemented
-- ✅ Database schema
-- ✅ Project management (create, list, select)
-- ✅ Artifact CRUD operations
-- ✅ ID generation system
-- ✅ Caption generation logic
-- ✅ Image preprocessing (letterbox/crop)
-- ✅ Basic React frontend with routing
+- **AI Artists**: Prepare consistent datasets for character LoRAs
+- **Game Developers**: Create training sets for procedural asset generation
+- **Story Writers**: Manage visual assets across multiple fictional universes
+- **Researchers**: Organize and caption large image collections
 
-### In Progress
-- 🚧 Artifact form UI
-- 🚧 Image import queue UI
-- 🚧 Lookup table management UI
-- 🚧 CSV import/export
-- 🚧 Training dataset export
+## Contributing
 
-## Architecture Decisions
+This project was built through an iterative human-AI collaboration. See [AI Development Story](documents/AI_DEVELOPMENT.md) for the fascinating details of how a skilled developer and AI assistant worked together to create production-ready software.
 
-- **SQLite per project**: Each universe gets its own database for clean separation
-- **Human-readable IDs**: `VEH-AEG-1736704800-A7F2` instead of auto-increment
-- **Go backend**: Single binary, fast, type-safe
-- **React frontend**: Component-based, easy to iterate on layout
-- **Natural language captions**: Structured but readable captions for model training
+## License
 
-## API Endpoints
+[Your chosen license here]
 
-```
-GET    /api/projects
-POST   /api/projects
+## Support
 
-GET    /api/projects/{name}/artifacts
-POST   /api/projects/{name}/artifacts
-GET    /api/projects/{name}/artifacts/{id}
-PUT    /api/projects/{name}/artifacts/{id}
-DELETE /api/projects/{name}/artifacts/{id}
+For issues, questions, or contributions, please [open an issue](link-to-issues) on GitHub.
 
-GET    /api/projects/{name}/images
-POST   /api/projects/{name}/images/{id}/caption
+---
 
-GET    /api/projects/{name}/lookups/{table}
-POST   /api/projects/{name}/lookups/{table}
-```
-
-## Next Steps
-
-1. Complete artifact form with all fields
-2. Implement image import queue
-3. Build lookup table management UI
-4. Add CSV import/export for lookup tables
-5. Implement training dataset export
-6. Add search/filtering capabilities
+**Built with ❤️ by a human developer and Claude (Anthropic)**

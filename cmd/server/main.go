@@ -51,6 +51,7 @@ func main() {
 			r.Get("/lookup-tables", handlers.ListLookupTables)
 			r.Post("/lookup-tables", handlers.CreateLookupTable)
 			r.Delete("/lookup-tables", handlers.DeleteLookupTable)
+			r.Post("/lookup-tables/clear", handlers.ClearLookupTableData)
 
 			r.Get("/artifacts", handlers.ListArtifacts)
 			r.Post("/artifacts", handlers.CreateArtifact)
@@ -60,6 +61,8 @@ func main() {
 
 			r.Get("/images", handlers.ListImages)
 			r.Post("/images", handlers.CreateImage)
+			r.Post("/images/export", handlers.ExportDataset)
+			r.Get("/images/{imageID}/file", handlers.GetImageFile)
 			r.Get("/images/{imageID}", handlers.GetImage)
 			r.Put("/images/{imageID}", handlers.UpdateImage)
 			r.Delete("/images/{imageID}", handlers.DeleteImage)

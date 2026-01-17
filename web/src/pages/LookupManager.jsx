@@ -58,6 +58,8 @@ function LookupManager() {
   const [showCreateTableDialog, setShowCreateTableDialog] = useState(false)
   const [showDeleteTableDialog, setShowDeleteTableDialog] = useState(false)
   const [deleteTableConfirmation, setDeleteTableConfirmation] = useState('')
+  const [showClearDataDialog, setShowClearDataDialog] = useState(false)
+  const [clearDataConfirmation, setClearDataConfirmation] = useState('')
   const [newTableData, setNewTableData] = useState({ name: '', template: 'basic', isMultiSelect: false })
   const [newColumnData, setNewColumnData] = useState({ name: '', type: 'text_100' })
   const [sortColumn, setSortColumn] = useState(null)
@@ -170,6 +172,23 @@ function LookupManager() {
       const newTables = tables.filter(t => t !== activeTable)
       setTables(newTables)
       setActiveTable(newTables.length > 0 ? newTables[0] : null)
+    } catch (err) {
+      setError(err.message)
+    }
+  }
+
+  async function handleClearData() {
+    if (clearDataConfirmation !== activeTable) {
+      setError('Table name does not match')
+      return
+    }
+
+    try {
+      await api.lookups.clearTableData(projectName, activeTable)
+      setShowClearDataDialog(false)
+      setClearDataConfirmation('')
+      // Reload entries to show empty table
+      loadEntries()
     } catch (err) {
       setError(err.message)
     }
@@ -758,15 +777,30 @@ function LookupManager() {
 
                     <div style={{ padding: '20px', backgroundColor: '#fff0f0', border: '1px solid #ffcccc', borderRadius: '4px' }}>
                       <h4 style={{ color: '#dc3545' }}>Danger Zone</h4>
-                      <p style={{ color: '#666', marginBottom: '12px' }}>
-                        Deleting this table will permanently remove all data. This cannot be undone.
-                      </p>
-                      <button
-                        onClick={() => setShowDeleteTableDialog(true)}
-                        style={{ backgroundColor: '#dc3545', color: 'white', border: 'none' }}
-                      >
-                        Delete Table
-                      </button>
+                      
+                      <div style={{ marginBottom: '20px' }}>
+                        <p style={{ color: '#666', marginBottom: '12px' }}>
+                          Clear all data from this table. The table structure and configuration will remain.
+                        </p>
+                        <button
+                          onClick={() => setShowClearDataDialog(true)}
+                          style={{ backgroundColor: '#fd7e14', color: 'white', border: 'none' }}
+                        >
+                          Clear All Data
+                        </button>
+                      </div>
+
+                      <div>
+                        <p style={{ color: '#666', marginBottom: '12px' }}>
+                          Delete this table completely. This will remove all data, structure, and configuration. This cannot be undone.
+                        </p>
+                        <button
+                          onClick={() => setShowDeleteTableDialog(true)}
+                          style={{ backgroundColor: '#dc3545', color: 'white', border: 'none' }}
+                        >
+                          Delete Table
+                        </button>
+                      </div>
                     </div>
                   </>
                 )}
@@ -897,6 +931,67 @@ function LookupManager() {
                 }}
               >
                 Delete Table
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Clear Data Dialog */}
+      {showClearDataDialog && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}>
+          <div className="card" style={{ maxWidth: '500px', width: '100%', margin: '20px' }}>
+            <h3 style={{ color: '#fd7e14' }}>⚠️ Clear All Data</h3>
+            
+            <p style={{ marginTop: '16px', marginBottom: '16px' }}>
+              This will permanently delete all entries from <strong>{activeTable}</strong>.
+            </p>
+
+            <p style={{ marginBottom: '8px' }}>
+              The table structure and configuration will remain intact.
+            </p>
+
+            <p style={{ marginBottom: '16px', fontWeight: 'bold' }}>
+              This action cannot be undone!
+            </p>
+
+            <div className="form-group">
+              <label>Type the table name <strong>{activeTable}</strong> to confirm:</label>
+              <input
+                type="text"
+                value={clearDataConfirmation}
+                onChange={(e) => setClearDataConfirmation(e.target.value)}
+                placeholder={activeTable}
+                autoFocus
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', marginTop: '20px', justifyContent: 'flex-end' }}>
+              <button onClick={() => {
+                setShowClearDataDialog(false)
+                setClearDataConfirmation('')
+              }}>Cancel</button>
+              <button
+                onClick={handleClearData}
+                disabled={clearDataConfirmation !== activeTable}
+                style={{
+                  backgroundColor: clearDataConfirmation === activeTable ? '#fd7e14' : '#ccc',
+                  color: 'white',
+                  cursor: clearDataConfirmation === activeTable ? 'pointer' : 'not-allowed',
+                }}
+              >
+                Clear All Data
               </button>
             </div>
           </div>

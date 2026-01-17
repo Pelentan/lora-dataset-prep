@@ -9,6 +9,7 @@ function ProjectNav({ projectName }) {
     { path: `/projects/${projectName}/artifacts`, label: 'Artifacts' },
     { path: `/projects/${projectName}/lookups`, label: 'Lookup Tables' },
     { path: `/projects/${projectName}/import`, label: 'Import Images' },
+    { path: `/projects/${projectName}/training-images`, label: 'Training Images' },
   ]
 
   // Determine current section

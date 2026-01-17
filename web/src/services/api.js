@@ -60,6 +60,23 @@ export const api = {
         : `${API_BASE}/projects/${projectName}/images`
       return fetchJSON(url)
     },
+    create: async (projectName, imageFile, metadata) => {
+      const formData = new FormData()
+      formData.append('image', imageFile)
+      formData.append('metadata', JSON.stringify(metadata))
+      
+      const response = await fetch(`${API_BASE}/projects/${projectName}/images`, {
+        method: 'POST',
+        body: formData,
+      })
+      
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({ error: 'Unknown error' }))
+        throw new Error(error.error || `HTTP ${response.status}`)
+      }
+      
+      return response.json()
+    },
     get: (projectName, imageId) =>
       fetchJSON(`${API_BASE}/projects/${projectName}/images/${imageId}`),
     update: (projectName, imageId, image) =>
@@ -88,6 +105,11 @@ export const api = {
     deleteTable: (projectName, tableName) =>
       fetchJSON(`${API_BASE}/projects/${projectName}/lookup-tables`, {
         method: 'DELETE',
+        body: JSON.stringify({ table_name: tableName }),
+      }),
+    clearTableData: (projectName, tableName) =>
+      fetchJSON(`${API_BASE}/projects/${projectName}/lookup-tables/clear`, {
+        method: 'POST',
         body: JSON.stringify({ table_name: tableName }),
       }),
     getSchema: (projectName, tableName) =>

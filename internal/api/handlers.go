@@ -1,11 +1,15 @@
 package api
 
 import (
+	"archive/zip"
 	"context"
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -158,10 +162,12 @@ func (h *Handlers) ListLookupTables(w http.ResponseWriter, r *http.Request) {
 		)`)
 
 		// Only show tables that are explicitly associated with this artifact type
+		// Exclude system tables
 		query := `SELECT DISTINCT t.name 
 		          FROM sqlite_master t
 		          WHERE t.type='table' 
 		          AND (t.name LIKE '%_types' OR t.name LIKE '%_codes' OR t.name LIKE '%_states' OR t.name LIKE '%_roles')
+		          AND t.name NOT IN ('lookup_table_artifact_types', 'lookup_table_config')
 		          AND EXISTS (
 		            SELECT 1 FROM lookup_table_artifact_types 
 		            WHERE table_name = t.name AND artifact_type_code = ?
@@ -169,9 +175,10 @@ func (h *Handlers) ListLookupTables(w http.ResponseWriter, r *http.Request) {
 		          ORDER BY t.name COLLATE NOCASE`
 		err = db.Select(&tables, query, artifactType)
 	} else {
-		// Get all lookup tables
+		// Get all lookup tables, excluding system tables
 		query := `SELECT name FROM sqlite_master WHERE type='table' AND 
-		          (name LIKE '%_types' OR name LIKE '%_codes' OR name LIKE '%_states' OR name LIKE '%_roles') 
+		          (name LIKE '%_types' OR name LIKE '%_codes' OR name LIKE '%_states' OR name LIKE '%_roles')
+		          AND name NOT IN ('lookup_table_artifact_types', 'lookup_table_config')
 		          ORDER BY name COLLATE NOCASE`
 		err = db.Select(&tables, query)
 	}
@@ -352,8 +359,54 @@ func (h *Handlers) DeleteLookupTable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clean up related config entries
+	db.Exec("DELETE FROM lookup_table_artifact_types WHERE table_name = ?", req.TableName)
+	db.Exec("DELETE FROM lookup_table_config WHERE table_name = ?", req.TableName)
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"deleted": true,
+	})
+}
+
+func (h *Handlers) ClearLookupTableData(w http.ResponseWriter, r *http.Request) {
+	db := getProjectDB(r)
+
+	var req struct {
+		TableName string `json:"table_name"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if req.TableName == "" {
+		respondError(w, http.StatusBadRequest, "table_name is required")
+		return
+	}
+
+	// Validate it's a lookup table
+	var exists int
+	checkQuery := `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=? AND 
+	               (name LIKE '%_types' OR name LIKE '%_codes' OR name LIKE '%_states' OR name LIKE '%_roles')`
+	if err := db.Get(&exists, checkQuery, req.TableName); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if exists == 0 {
+		respondError(w, http.StatusNotFound, "lookup table not found")
+		return
+	}
+
+	// Delete all data from the table but keep the structure
+	deleteQuery := fmt.Sprintf("DELETE FROM %s", req.TableName)
+	if _, err := db.Exec(deleteQuery); err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to clear table data: %v", err))
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"cleared": true,
 	})
 }
 
@@ -915,7 +968,159 @@ func (h *Handlers) ListImages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) CreateImage(w http.ResponseWriter, r *http.Request) {
-	respondError(w, http.StatusNotImplemented, "use import queue for image creation")
+	db := getProjectDB(r)
+	projectName := chi.URLParam(r, "projectName")
+
+	// Parse multipart form (max 20MB)
+	if err := r.ParseMultipartForm(20 << 20); err != nil {
+		respondError(w, http.StatusBadRequest, "failed to parse form")
+		return
+	}
+
+	// Get image file
+	file, header, err := r.FormFile("image")
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "image file is required")
+		return
+	}
+	defer file.Close()
+
+	// Get metadata JSON
+	metadataJSON := r.FormValue("metadata")
+	if metadataJSON == "" {
+		respondError(w, http.StatusBadRequest, "metadata is required")
+		return
+	}
+
+	var metadata struct {
+		ArtifactID         string `json:"artifact_id"`
+		CaptionText        string `json:"caption_text"`
+		Angle              string `json:"angle"`
+		Distance           string `json:"distance"`
+		LightingCondition  string `json:"lighting_condition"`
+		ConditionState     string `json:"condition_state"`
+		EnvironmentContext string `json:"environment_context"`
+		SpecificDetails    string `json:"specific_details"`
+	}
+
+	if err := json.Unmarshal([]byte(metadataJSON), &metadata); err != nil {
+		respondError(w, http.StatusBadRequest, "invalid metadata JSON")
+		return
+	}
+
+	if metadata.ArtifactID == "" {
+		respondError(w, http.StatusBadRequest, "artifact_id is required")
+		return
+	}
+
+	// Get angle code for ID generation (use empty string if not provided)
+	angleCode := metadata.Angle
+	if angleCode == "" {
+		angleCode = "NONE"
+	}
+
+	// Find next sequence number for this artifact+angle combination
+	var maxSeq int
+	seqQuery := `SELECT COALESCE(MAX(CAST(SUBSTR(id, -3) AS INTEGER)), 0) 
+	             FROM training_images 
+	             WHERE artifact_id = ? AND (angle = ? OR (angle IS NULL AND ? = 'NONE'))`
+	if err := db.Get(&maxSeq, seqQuery, metadata.ArtifactID, angleCode, angleCode); err != nil {
+		maxSeq = 0
+	}
+	sequence := maxSeq + 1
+
+	// Generate unique ID for the image
+	imageID := service.GenerateTrainingImageID(metadata.ArtifactID, angleCode, sequence)
+
+	// Create images/training directory if it doesn't exist
+	projectDir := filepath.Join("projects", projectName, "images", "training")
+	if err := os.MkdirAll(projectDir, 0755); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to create directory")
+		return
+	}
+
+	// Save image file
+	ext := filepath.Ext(header.Filename)
+	if ext == "" {
+		ext = ".png"
+	}
+	filename := imageID + ext
+	filepath := filepath.Join(projectDir, filename)
+
+	outFile, err := os.Create(filepath)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to save image")
+		return
+	}
+	defer outFile.Close()
+
+	if _, err := io.Copy(outFile, file); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to write image")
+		return
+	}
+
+	// Generate caption .txt file
+	captionPath := filepath[:len(filepath)-len(ext)] + ".txt"
+	if err := os.WriteFile(captionPath, []byte(metadata.CaptionText), 0644); err != nil {
+		respondError(w, http.StatusInternalServerError, "failed to save caption")
+		return
+	}
+
+	// Insert into database
+	now := time.Now()
+	image := models.TrainingImage{
+		ID:                   imageID,
+		ArtifactID:           metadata.ArtifactID,
+		FilePath:             filepath,
+		OriginalFilename:     &header.Filename,
+		CaptionText:          &metadata.CaptionText,
+		CaptionGeneratedDate: &now,
+		Reviewed:             false,
+		Approved:             false,
+		CreatedAt:            now,
+		UpdatedAt:            now,
+	}
+
+	// Set optional fields
+	if metadata.Angle != "" {
+		image.Angle = &metadata.Angle
+	}
+	if metadata.Distance != "" {
+		image.Distance = &metadata.Distance
+	}
+	if metadata.LightingCondition != "" {
+		image.LightingCondition = &metadata.LightingCondition
+	}
+	if metadata.ConditionState != "" {
+		image.ConditionState = &metadata.ConditionState
+	}
+	if metadata.EnvironmentContext != "" {
+		image.EnvironmentContext = &metadata.EnvironmentContext
+	}
+	if metadata.SpecificDetails != "" {
+		image.SpecificDetails = &metadata.SpecificDetails
+	}
+
+	query := `INSERT INTO training_images (
+		id, artifact_id, file_path, original_filename,
+		angle, distance, lighting_condition, condition_state,
+		environment_context, specific_details,
+		caption_text, caption_generated_date,
+		reviewed, approved, created_at, updated_at
+	) VALUES (
+		:id, :artifact_id, :file_path, :original_filename,
+		:angle, :distance, :lighting_condition, :condition_state,
+		:environment_context, :specific_details,
+		:caption_text, :caption_generated_date,
+		:reviewed, :approved, :created_at, :updated_at
+	)`
+
+	if _, err := db.NamedExec(query, image); err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save image record: %v", err))
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, image)
 }
 
 func (h *Handlers) GetImage(w http.ResponseWriter, r *http.Request) {
@@ -937,32 +1142,50 @@ func (h *Handlers) UpdateImage(w http.ResponseWriter, r *http.Request) {
 	db := getProjectDB(r)
 	imageID := chi.URLParam(r, "imageID")
 
-	var image models.TrainingImage
-	if err := json.NewDecoder(r.Body).Decode(&image); err != nil {
+	var req struct {
+		CaptionText *string `json:"caption_text"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	image.ID = imageID
-	image.UpdatedAt = time.Now()
+	// Get existing image to find file path
+	var image models.TrainingImage
+	if err := db.Get(&image, "SELECT * FROM training_images WHERE id = ?", imageID); err != nil {
+		respondError(w, http.StatusNotFound, "image not found")
+		return
+	}
 
+	// Update caption text in database
+	now := time.Now()
 	query := `UPDATE training_images SET
-		angle = :angle,
-		distance = :distance,
-		lighting_condition = :lighting_condition,
-		condition_state = :condition_state,
-		specific_details = :specific_details,
-		environment_context = :environment_context,
-		caption_text = :caption_text,
-		reviewed = :reviewed,
-		approved = :approved,
-		updated_at = :updated_at
-	WHERE id = :id`
+		caption_text = ?,
+		caption_generated_date = ?,
+		updated_at = ?
+	WHERE id = ?`
 
-	if _, err := db.NamedExec(query, image); err != nil {
+	if _, err := db.Exec(query, req.CaptionText, now, now, imageID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+
+	// Update caption .txt file
+	if req.CaptionText != nil && image.FilePath != "" {
+		// Get caption file path (same as image but .txt extension)
+		ext := filepath.Ext(image.FilePath)
+		captionPath := image.FilePath[:len(image.FilePath)-len(ext)] + ".txt"
+
+		if err := os.WriteFile(captionPath, []byte(*req.CaptionText), 0644); err != nil {
+			respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to update caption file: %v", err))
+			return
+		}
+	}
+
+	// Return updated image
+	image.CaptionText = req.CaptionText
+	image.CaptionGeneratedDate = &now
+	image.UpdatedAt = now
 
 	respondJSON(w, http.StatusOK, image)
 }
@@ -971,15 +1194,169 @@ func (h *Handlers) DeleteImage(w http.ResponseWriter, r *http.Request) {
 	db := getProjectDB(r)
 	imageID := chi.URLParam(r, "imageID")
 
+	// Get image to find file paths
+	var image models.TrainingImage
+	if err := db.Get(&image, "SELECT * FROM training_images WHERE id = ?", imageID); err != nil {
+		respondError(w, http.StatusNotFound, "image not found")
+		return
+	}
+
+	// Delete from database first
 	query := "DELETE FROM training_images WHERE id = ?"
 	if _, err := db.Exec(query, imageID); err != nil {
 		respondError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
+	// Delete image file
+	if image.FilePath != "" {
+		os.Remove(image.FilePath) // Ignore error if file doesn't exist
+
+		// Delete caption file
+		ext := filepath.Ext(image.FilePath)
+		captionPath := image.FilePath[:len(image.FilePath)-len(ext)] + ".txt"
+		os.Remove(captionPath) // Ignore error if file doesn't exist
+	}
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"deleted": true,
 	})
+}
+
+func (h *Handlers) GetImageFile(w http.ResponseWriter, r *http.Request) {
+	db := getProjectDB(r)
+	imageID := chi.URLParam(r, "imageID")
+
+	// Get image to find file path
+	var image models.TrainingImage
+	if err := db.Get(&image, "SELECT * FROM training_images WHERE id = ?", imageID); err != nil {
+		respondError(w, http.StatusNotFound, "image not found")
+		return
+	}
+
+	if image.FilePath == "" {
+		respondError(w, http.StatusNotFound, "image file path empty")
+		return
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(image.FilePath); os.IsNotExist(err) {
+		respondError(w, http.StatusNotFound, fmt.Sprintf("image file not found at path: %s", image.FilePath))
+		return
+	}
+
+	// Read the file
+	data, err := os.ReadFile(image.FilePath)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read image: %v", err))
+		return
+	}
+
+	// Detect content type
+	contentType := "image/png"
+	ext := filepath.Ext(image.FilePath)
+	switch ext {
+	case ".jpg", ".jpeg":
+		contentType = "image/jpeg"
+	case ".png":
+		contentType = "image/png"
+	case ".gif":
+		contentType = "image/gif"
+	case ".webp":
+		contentType = "image/webp"
+	}
+
+	// Serve the file
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Cache-Control", "public, max-age=31536000")
+	w.Write(data)
+}
+
+func (h *Handlers) ExportDataset(w http.ResponseWriter, r *http.Request) {
+	db := getProjectDB(r)
+	projectName := chi.URLParam(r, "projectName")
+	artifactID := r.URL.Query().Get("artifact_id")
+
+	// Get images
+	query := "SELECT * FROM training_images"
+	args := []interface{}{}
+	if artifactID != "" {
+		query += " WHERE artifact_id = ?"
+		args = append(args, artifactID)
+	}
+
+	var images []models.TrainingImage
+	if err := db.Select(&images, query, args...); err != nil {
+		respondError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if len(images) == 0 {
+		respondError(w, http.StatusBadRequest, "no images to export")
+		return
+	}
+
+	// Create a temporary ZIP file
+	tmpFile, err := os.CreateTemp("", "dataset-*.zip")
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create temp file: %v", err))
+		return
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	// Create ZIP writer
+	zipWriter := zip.NewWriter(tmpFile)
+	defer zipWriter.Close()
+
+	// Add each image and caption to ZIP
+	for _, image := range images {
+		if image.FilePath == "" {
+			continue
+		}
+
+		// Add image file
+		imageFile, err := os.Open(image.FilePath)
+		if err != nil {
+			continue // Skip if file doesn't exist
+		}
+
+		imageName := filepath.Base(image.FilePath)
+		imageWriter, err := zipWriter.Create(imageName)
+		if err != nil {
+			imageFile.Close()
+			continue
+		}
+		io.Copy(imageWriter, imageFile)
+		imageFile.Close()
+
+		// Add caption file
+		ext := filepath.Ext(image.FilePath)
+		captionPath := image.FilePath[:len(image.FilePath)-len(ext)] + ".txt"
+
+		if captionData, err := os.ReadFile(captionPath); err == nil {
+			captionName := imageName[:len(imageName)-len(ext)] + ".txt"
+			captionWriter, err := zipWriter.Create(captionName)
+			if err == nil {
+				captionWriter.Write(captionData)
+			}
+		}
+	}
+
+	// Close ZIP writer to flush
+	zipWriter.Close()
+
+	// Read the ZIP file back
+	zipData, err := os.ReadFile(tmpFile.Name())
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read ZIP: %v", err))
+		return
+	}
+
+	// Send ZIP file
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s_training_images.zip", projectName))
+	w.Write(zipData)
 }
 
 func (h *Handlers) GenerateCaption(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,187 @@
+name: "CodeQL Security Analysis"
+
+on:
+  push:
+    branches: [ "main", "master", "develop" ]
+  pull_request:
+    branches: [ "main", "master", "develop" ]
+  schedule:
+    # Run weekly security scans every Monday at 6 AM UTC
+    - cron: '0 6 * * 1'
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  analyze:
+    name: Analyze Code Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      # Required for all workflows
+      security-events: write
+      actions: read
+      contents: read
+      # Required for pull requests
+      pull-requests: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [ 'go', 'javascript' ]
+        # CodeQL supports: 'cpp', 'csharp', 'go', 'java', 'javascript', 'python', 'ruby', 'swift'
+        # 'javascript' covers JavaScript, TypeScript, HTML, and CSS
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: ${{ matrix.language }}
+        # Specify queries to run
+        # Default: Uses the default security-extended query suite
+        # Options: security-extended, security-and-quality
+        queries: security-and-quality
+        
+    # Autobuild attempts to build compiled languages (Go)
+    - name: Autobuild
+      uses: github/codeql-action/autobuild@v3
+
+    - name: Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:${{matrix.language}}"
+        # Upload results to GitHub Security tab
+        upload: true
+        # Output SARIF file for additional processing
+        output: sarif-results
+        
+    - name: Upload SARIF as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: codeql-sarif-${{ matrix.language }}
+        path: sarif-results/${{ matrix.language }}.sarif
+        retention-days: 30
+
+  # Separate job to check for critical/high severity issues and block PRs
+  security-gate:
+    name: Security Gate - Block Critical Issues
+    runs-on: ubuntu-latest
+    needs: analyze
+    if: github.event_name == 'pull_request'
+    permissions:
+      security-events: read
+      pull-requests: write
+      
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Download SARIF results
+      uses: actions/download-artifact@v4
+      with:
+        path: sarif-results
+        
+    - name: Check for Critical/High Severity Issues
+      id: check-severity
+      run: |
+        echo "Checking for critical and high severity security issues..."
+        
+        CRITICAL_COUNT=0
+        HIGH_COUNT=0
+        
+        # Check all SARIF files for critical/high severity
+        for sarif in sarif-results/**/*.sarif; do
+          if [ -f "$sarif" ]; then
+            echo "Analyzing: $sarif"
+            
+            # Count critical issues (using jq to parse SARIF format)
+            CRITICAL=$(jq -r '[.runs[].results[] | select(.level == "error" or .properties.severity == "critical")] | length' "$sarif" 2>/dev/null || echo "0")
+            HIGH=$(jq -r '[.runs[].results[] | select(.level == "warning" or .properties.severity == "high")] | length' "$sarif" 2>/dev/null || echo "0")
+            
+            CRITICAL_COUNT=$((CRITICAL_COUNT + CRITICAL))
+            HIGH_COUNT=$((HIGH_COUNT + HIGH))
+            
+            echo "  Critical: $CRITICAL, High: $HIGH"
+          fi
+        done
+        
+        echo "critical_count=$CRITICAL_COUNT" >> $GITHUB_OUTPUT
+        echo "high_count=$HIGH_COUNT" >> $GITHUB_OUTPUT
+        
+        echo "================================"
+        echo "Security Scan Summary:"
+        echo "Critical Issues: $CRITICAL_COUNT"
+        echo "High Issues: $HIGH_COUNT"
+        echo "================================"
+        
+        # Fail if critical issues found
+        if [ $CRITICAL_COUNT -gt 0 ]; then
+          echo "❌ CRITICAL security issues detected! PR blocked."
+          exit 1
+        fi
+        
+        # Optional: Also fail on high severity (uncomment if desired)
+        # if [ $HIGH_COUNT -gt 0 ]; then
+        #   echo "❌ HIGH severity security issues detected! PR blocked."
+        #   exit 1
+        # fi
+        
+        echo "✅ No critical security issues found."
+        
+    - name: Comment PR with Security Status
+      if: always()
+      uses: actions/github-script@v7
+      with:
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        script: |
+          const critical = ${{ steps.check-severity.outputs.critical_count || 0 }};
+          const high = ${{ steps.check-severity.outputs.high_count || 0 }};
+          
+          let status = '✅ **Security Scan Passed**';
+          let message = 'No critical security issues detected.';
+          
+          if (critical > 0) {
+            status = '❌ **Security Scan Failed**';
+            message = `**${critical} CRITICAL** security issue(s) detected! This PR is blocked until issues are resolved.`;
+          }
+          
+          const details = `
+          ## ${status}
+          
+          ${message}
+          
+          **Scan Results:**
+          - 🔴 Critical: ${critical}
+          - 🟠 High: ${high}
+          
+          ${critical > 0 || high > 0 ? '➡️ View detailed findings in the **Security** tab above.' : ''}
+          
+          ---
+          *CodeQL Security Analysis - Scanned Go and JavaScript/TypeScript code*
+          `;
+          
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: details
+          });
+
+  # Summary job that always runs
+  security-summary:
+    name: Security Scan Summary
+    runs-on: ubuntu-latest
+    needs: [analyze]
+    if: always()
+    
+    steps:
+    - name: Summary
+      run: |
+        echo "## 🔒 CodeQL Security Analysis Complete" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Security scan has been completed for:" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Go backend" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ JavaScript/TypeScript frontend" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "📊 View detailed results in the **Security** tab." >> $GITHUB_STEP_SUMMARY
