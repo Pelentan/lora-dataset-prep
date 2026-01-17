@@ -6,6 +6,7 @@
 **Scope:** Full-stack web application for managing AI training datasets  
 **Timeline:** 5 business days (January 13-17, 2025)  
 **Team:** 1 senior developer + Claude AI assistant  
+**Developer:** [Michael E. Shaffer](RESUME.md) - 20+ years experience in software development, DevOps, and cloud architecture  
 **Result:** Production-ready beta with zero critical security vulnerabilities  
 
 **Traditional Team Estimate:** 8-12 weeks with 3-4 person team  
@@ -739,4 +740,4 @@ Traditional team estimate for 72 features: **10-14 weeks with 3-4 person team**.
 
 *Assessment completed January 17, 2025*  
 *Project: LoRA Dataset Preparation Tool*  
-*Developer: Michael Shaver + Claude (Anthropic)*
+*Developer: [Michael E. Shaffer](RESUME.md) + Claude (Anthropic)*

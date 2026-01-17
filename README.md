@@ -1,6 +1,6 @@
 # LoRA Dataset Preparation Tool
 
-[![CodeQL](https://github.com/Pelentan/lora-prep/workflows/CodeQL%20Security%20Analysis/badge.svg)](https://github.com/Pelentan/lora-prep/actions/workflows/codeql.yml)
+[![CodeQL](https://github.com/yourusername/lora-prep/workflows/CodeQL%20Security%20Analysis/badge.svg)](https://github.com/yourusername/lora-prep/actions/workflows/codeql.yml)
 
 A comprehensive web application for managing and preparing training datasets for LoRA (Low-Rank Adaptation) model fine-tuning. Built for AI artists and developers working with thousands of images across multiple creative universes.
 
@@ -111,4 +111,4 @@ For issues, questions, or contributions, please [open an issue](link-to-issues) 
 
 ---
 
-**Built with ❤️ by a human developer and Claude (Anthropic)**
+**Built with ❤️ by [Michael E. Shaffer](documents/RESUME.md) and Claude (Anthropic)**
