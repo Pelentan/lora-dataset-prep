@@ -28,6 +28,7 @@ This tool streamlines the entire process of creating high-quality training datas
 
 - **[Installation Guide](documents/INSTALLATION.md)** - Get up and running in minutes
 - **[User Guide](documents/USER_GUIDE.md)** - Complete walkthrough from start to finish
+- **[Development Assessment](documents/DEVELOPMENT_ASSESSMENT.md)** - 5 days vs 3 months: A comparison
 - **[Security Scanning](documents/SECURITY.md)** - Automated vulnerability detection and PR blocking
 - **[AI Development Story](documents/AI_DEVELOPMENT.md)** - How this application was built with AI assistance
 
