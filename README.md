@@ -31,6 +31,7 @@ This tool streamlines the entire process of creating high-quality training datas
 - **[Development Assessment](documents/DEVELOPMENT_ASSESSMENT.md)** - 5 days vs 3 months: A comparison
 - **[Security Scanning](documents/SECURITY.md)** - Automated vulnerability detection and PR blocking
 - **[AI Development Story](documents/AI_DEVELOPMENT.md)** - How this application was built with AI assistance
+- **[Working with AI](documents/WORKING_WITH_AI.md)** - Practical lessons learned for using AI effectively
 
 ## Quick Start
 
